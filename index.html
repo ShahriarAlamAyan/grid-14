@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mobile Football Game</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #87CEEB; font-family: sans-serif; }
+        canvas { display: block; background: #228B22; }
+        #score { position: absolute; top: 20px; left: 20px; color: white; font-size: 24px; }
+    </style>
+</head>
+<body>
+    <div id="score">Score: 0</div>
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreElement = document.getElementById("score");
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    let score = 0;
+    let ballY = canvas.height / 2;
+    let gravity = 0.6;
+    let lift = -10;
+    let velocity = 0;
+
+    // বাধা (Obstacle)
+    let pipeX = canvas.width;
+    let pipeWidth = 50;
+    let gap = 150;
+    let pipeTop = Math.random() * (canvas.height / 2);
+
+    function draw() {
+        // ব্যাকগ্রাউন্ড
+        ctx.fillStyle = "#228B22";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // বল (ফুটবল)
+        ctx.beginPath();
+        ctx.arc(50, ballY, 20, 0, Math.PI * 2);
+        ctx.fillStyle = "white";
+        ctx.fill();
+        ctx.strokeStyle = "black";
+        ctx.stroke();
+        ctx.closePath();
+
+        // ফিজিক্স
+        velocity += gravity;
+        ballY += velocity;
+
+        // বাধা তৈরি
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(pipeX, 0, pipeWidth, pipeTop); // উপরের খুঁটি
+        ctx.fillRect(pipeX, pipeTop + gap, pipeWidth, canvas.height); // নিচের খুঁটি
+
+        pipeX -= 5;
+
+        if (pipeX < -pipeWidth) {
+            pipeX = canvas.width;
+            pipeTop = Math.random() * (canvas.height / 2);
+            score++;
+            scoreElement.innerHTML = "Score: " + score;
+        }
+
+        // গেম ওভার কন্ডিশন
+        if (ballY > canvas.height || ballY < 0 || 
+           (50 + 20 > pipeX && 50 - 20 < pipeX + pipeWidth && 
+           (ballY - 20 < pipeTop || ballY + 20 > pipeTop + gap))) {
+            alert("Game Over! Score: " + score);
+            resetGame();
+        }
+
+        requestAnimationFrame(draw);
+    }
+
+    function resetGame() {
+        ballY = canvas.height / 2;
+        velocity = 0;
+        pipeX = canvas.width;
+        score = 0;
+        scoreElement.innerHTML = "Score: 0";
+    }
+
+    // টাচ কন্ট্রোল
+    window.addEventListener("touchstart", function() {
+        velocity = lift;
+    });
+
+    draw();
+</script>
+</body>
+</html>
