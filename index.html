@@ -38,42 +38,53 @@
             width: 100%;
             height: auto;
             cursor: pointer;
-            background: #7ec8e0; /* fallback sky */
+            background: #7ec8e0;
         }
 
-        /* Score panel - premium glassmorphism */
+        /* Score panel */
         .score-panel {
             position: absolute;
             top: 18px;
             left: 0;
             right: 0;
             display: flex;
-            justify-content: center;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
             pointer-events: none;
             z-index: 20;
         }
 
-        .score-card {
+        .score-card, .highscore-card {
             background: rgba(0, 0, 0, 0.65);
             backdrop-filter: blur(10px);
             border-radius: 60px;
-            padding: 8px 28px;
+            padding: 8px 20px;
             color: white;
             font-weight: bold;
-            font-size: 28px;
+            font-size: 22px;
             letter-spacing: 1px;
             font-family: monospace;
             border: 1px solid rgba(255,255,255,0.3);
             box-shadow: 0 6px 14px rgba(0,0,0,0.3);
         }
 
-        .score-card span {
+        .score-card span, .highscore-card span {
             color: #f9e75c;
-            font-size: 34px;
+            font-size: 26px;
             margin-right: 6px;
         }
 
-        /* start screen 2*/
+        .highscore-card span:first-child {
+            color: #ffaa44;
+        }
+
+        /* Hidden high score on first load */
+        .hide-highscore {
+            display: none;
+        }
+
+        /* start screen */
         .start-screen {
             position: absolute;
             top: 0;
@@ -109,11 +120,26 @@
         .sub {
             font-size: 1.1rem;
             color: #d4edff;
-            margin-bottom: 35px;
+            margin-bottom: 20px;
             background: rgba(0,0,0,0.4);
             padding: 6px 20px;
             border-radius: 40px;
             backdrop-filter: blur(4px);
+        }
+
+        .highscore-start {
+            font-size: 1.3rem;
+            background: rgba(0,0,0,0.6);
+            padding: 8px 20px;
+            border-radius: 40px;
+            margin: 15px 0;
+            color: #ffd966;
+            font-weight: bold;
+        }
+
+        .highscore-start span {
+            color: white;
+            margin-right: 8px;
         }
 
         .ball-preview {
@@ -180,12 +206,12 @@
             display: none;
         }
 
-        /* responsive canvas */
         @media (max-width: 650px) {
             .game-title { font-size: 2.8rem; }
             .start-btn { font-size: 1.4rem; padding: 12px 32px; }
-            .score-card { padding: 5px 20px; font-size: 22px; }
-            .score-card span { font-size: 28px; }
+            .score-card, .highscore-card { padding: 5px 16px; font-size: 18px; }
+            .score-card span, .highscore-card span { font-size: 22px; }
+            .highscore-start { font-size: 1rem; }
         }
     </style>
 </head>
@@ -196,15 +222,20 @@
         <div class="score-card">
             <span>⚡</span> <span id="scoreValue">0</span>
         </div>
+        <div id="highScoreCard" class="highscore-card hide-highscore">
+            <span>🏆</span> <span id="highScoreValue">0</span>
+        </div>
     </div>
     <div class="info-tip">
         👆 Tap anywhere → jump & fly
     </div>
 
-    <!-- Start / landing screen -->
     <div id="startOverlay" class="start-screen">
         <div class="game-title">JUMPING BALL</div>
         <div class="sub">Develop by Sifat</div>
+        <div id="startHighScoreContainer" class="highscore-start hide-highscore">
+            <span>🏆 HIGH SCORE</span> <span id="startHighScore">0</span>
+        </div>
         <div class="ball-preview">
             <img id="previewBallImg" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%23FFD966' stroke='%23444444' stroke-width='2'/%3E%3Cpath d='M30,30 L70,70 M70,30 L30,70' stroke='%23333' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='50' cy='50' r='10' fill='%23AA7A3C'/%3E%3Cpath d='M20,50 L80,50 M50,20 L50,80' stroke='%23444444' stroke-width='2' stroke-dasharray='4 4'/%3E%3C/svg%3E" alt="jumping ball">
         </div>
@@ -219,60 +250,108 @@
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
         const scoreSpan = document.getElementById("scoreValue");
+        const highScoreSpan = document.getElementById("highScoreValue");
+        const startHighScoreSpan = document.getElementById("startHighScore");
         const startOverlay = document.getElementById("startOverlay");
         const startBtn = document.getElementById("startGameBtn");
+        const highScoreCard = document.getElementById("highScoreCard");
+        const startHighScoreContainer = document.getElementById("startHighScoreContainer");
 
-        // Set canvas dimensions (fixed logical resolution but scales responsively)
-        // We want consistent gameplay on different devices: 400x600
         const CANVAS_W = 400;
         const CANVAS_H = 600;
         canvas.width = CANVAS_W;
         canvas.height = CANVAS_H;
-
-        // ensure container style fits properly
         canvas.style.width = '100%';
         canvas.style.height = 'auto';
         canvas.style.aspectRatio = '400 / 600';
 
-        // let gameplay = false
-        let gameActive = false;      // becomes true after start screen fades
+        let gameActive = false;
         let score = 0;
         let ballY = CANVAS_H / 2;
         let velocity = 0;
         const GRAVITY = 0.5;
-        const JUMP_FORCE = -8.2;
+        const JUMP_FORCE = -6.2;
+        
+        // Rotation variables
+        let ballAngle = 0;
+        let spinSpeed = 0.05;
 
-        // Obstacle (pipe/pillar)
+        // Obstacle
         let pipeX = CANVAS_W;
         const PIPE_WIDTH = 42;
-        const PIPE_GAP = 150;        // gap between upper and lower pillar
-        let pipeTopHeight = Math.random() * (CANVAS_H - PIPE_GAP - 40) + 30; // range 30 to (height-gap-30)
+        const PIPE_GAP = 150; 
+        let pipeTopHeight = Math.random() * (CANVAS_H - PIPE_GAP - 40) + 30; 
 
-        // ball radius
         const BALL_RADIUS = 16;
-
-        // Game over & frame control
         let animationId = null;
 
-        // ----- CUSTOM BALL IMAGE (high quality vector style) -----
-        // We'll generate an image element using canvas drawing as a texture, 
-        // OR we create an inline SVG image that looks like a cool jumping ball with soccer/football hybrid + glow.
-        // But to make it unique "Jumping Ball" with personality, we will create an Image bitmap from an SVG.
-        // This satisfies "Generate an image that I will use in the code. Use the image as the ball."
-        // We'll draw a super detailed ball with shadow, seams, and gradient.
+        // ----- HIGH SCORE SYSTEM -----
+        let highScore = 0;
+        let hasPlayedBefore = false;  // Did we ever save a high score?
 
+        function loadHighScore() {
+            const saved = localStorage.getItem("jumpingBallHighScore");
+            if (saved !== null && !isNaN(parseInt(saved))) {
+                highScore = parseInt(saved);
+                hasPlayedBefore = true;
+                // Show high score UI since we have a record
+                highScoreCard.classList.remove("hide-highscore");
+                startHighScoreContainer.classList.remove("hide-highscore");
+                updateHighScoreUI();
+            } else {
+                // First time visitor: keep high score UI hidden
+                highScore = 0;
+                hasPlayedBefore = false;
+                highScoreCard.classList.add("hide-highscore");
+                startHighScoreContainer.classList.add("hide-highscore");
+            }
+        }
+
+        function updateHighScoreUI() {
+            highScoreSpan.innerText = highScore;
+            if (startHighScoreSpan) startHighScoreSpan.innerText = highScore;
+        }
+
+        function saveHighScoreIfNeeded(currentScore) {
+            if (currentScore > highScore) {
+                highScore = currentScore;
+                localStorage.setItem("jumpingBallHighScore", highScore);
+                updateHighScoreUI();
+                // Ensure UI is visible now (in case it was hidden before first game)
+                if (!hasPlayedBefore) {
+                    hasPlayedBefore = true;
+                    highScoreCard.classList.remove("hide-highscore");
+                    startHighScoreContainer.classList.remove("hide-highscore");
+                }
+            } else if (!hasPlayedBefore && currentScore >= 0) {
+                // First game ever, even if score 0 or low: show the high score interface
+                // But don't save a zero if it's lower than existing? Actually no existing, so set highScore to currentScore.
+                // However highScore is 0 from init, but we want to show the UI.
+                // We'll just mark as played and reveal UI. HighScore remains 0 (or whatever currentScore if >0).
+                if (currentScore > highScore) {
+                    highScore = currentScore;
+                    localStorage.setItem("jumpingBallHighScore", highScore);
+                } else {
+                    // first game but score 0, still we want to show "High Score: 0"
+                    // ensure storage is set to 0 so next load sees it
+                    localStorage.setItem("jumpingBallHighScore", highScore);
+                }
+                hasPlayedBefore = true;
+                updateHighScoreUI();
+                highScoreCard.classList.remove("hide-highscore");
+                startHighScoreContainer.classList.remove("hide-highscore");
+            }
+        }
+
+        // ----- CUSTOM BALL IMAGE -----
         function createCustomBallImage() {
-            // Create an offscreen canvas to generate a high-quality ball sprite
-            const size = 48;  // double resolution for crispness
+            const size = 48; 
             const offCanvas = document.createElement('canvas');
             offCanvas.width = size;
             offCanvas.height = size;
             const offCtx = offCanvas.getContext('2d');
-            
             const center = size/2;
             const radius = size/2 - 2;
-            
-            // radial gradient for 3D sphere effect
             const grad = offCtx.createRadialGradient(center-5, center-5, 5, center, center, radius);
             grad.addColorStop(0, '#FFE27A');
             grad.addColorStop(0.6, '#E4B138');
@@ -284,20 +363,14 @@
             offCtx.strokeStyle = '#3C280D';
             offCtx.lineWidth = 1.8;
             offCtx.stroke();
-            
-            // classic soccer-like pentagon pattern but stylized for Jumping Ball
             offCtx.beginPath();
             offCtx.lineWidth = 2.2;
             offCtx.strokeStyle = '#2F2A24';
-            // Draw crossing stripes
-            offCtx.beginPath();
             offCtx.moveTo(center - radius*0.7, center - radius*0.7);
             offCtx.lineTo(center + radius*0.7, center + radius*0.7);
             offCtx.moveTo(center + radius*0.7, center - radius*0.7);
             offCtx.lineTo(center - radius*0.7, center + radius*0.7);
             offCtx.stroke();
-            
-            // central hexagon effect
             offCtx.beginPath();
             offCtx.arc(center, center, radius*0.38, 0, Math.PI*2);
             offCtx.fillStyle = '#D49C2C';
@@ -310,21 +383,16 @@
             offCtx.beginPath();
             offCtx.arc(center+3, center+2, radius*0.12, 0, Math.PI*2);
             offCtx.fill();
-            
-            // white highlight
             offCtx.beginPath();
             offCtx.ellipse(center-6, center-8, 6, 4, 0, 0, Math.PI*2);
             offCtx.fillStyle = 'rgba(255,255,240,0.6)';
             offCtx.fill();
-            
-            // add little star/spark
             offCtx.fillStyle = '#FFEEAA';
             offCtx.beginPath();
             offCtx.moveTo(center+12, center-10);
             offCtx.lineTo(center+15, center-14);
             offCtx.lineTo(center+18, center-10);
             offCtx.fill();
-            
             const img = new Image();
             img.src = offCanvas.toDataURL();
             return img;
@@ -332,10 +400,8 @@
 
         const ballImage = createCustomBallImage();
 
-        // alternative ready preview for start screen also show same image
         const previewImg = document.getElementById("previewBallImg");
         if (previewImg) {
-            // replace preview with our generated ball image
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = 80;
             tempCanvas.height = 80;
@@ -365,80 +431,49 @@
             previewImg.src = tempCanvas.toDataURL();
         }
 
-        // ----- helper functions ----
+        // ----- helpers ----
         function updateScoreUI() {
             scoreSpan.innerText = score;
         }
 
-        // reset game values without restarting screen
-        function fullGameReset() {
-            score = 0;
-            updateScoreUI();
-            ballY = CANVAS_H / 2;
-            velocity = 0;
-            pipeX = CANVAS_W;
-            // generate new random pipe position
-            pipeTopHeight = Math.random() * (CANVAS_H - PIPE_GAP - 60) + 40;
-            if (pipeTopHeight < 25) pipeTopHeight = 35;
-            if (pipeTopHeight + PIPE_GAP > CANVAS_H - 25) pipeTopHeight = CANVAS_H - PIPE_GAP - 35;
-            gameActive = true;
-        }
-
-        // collision detection (precise)
         function checkCollision() {
-            // ball boundaries
-            if (ballY + BALL_RADIUS >= CANVAS_H || ballY - BALL_RADIUS <= 0) {
-                return true;
-            }
-            
-            // pipe collision (rectangle vs circle)
+            if (ballY + BALL_RADIUS >= CANVAS_H || ballY - BALL_RADIUS <= 0) return true;
             const ballLeft = 50 - BALL_RADIUS;
             const ballRight = 50 + BALL_RADIUS;
             const ballTop = ballY - BALL_RADIUS;
             const ballBottom = ballY + BALL_RADIUS;
-            
             const pipeLeft = pipeX;
             const pipeRight = pipeX + PIPE_WIDTH;
-            
-            // overlap condition
             if (ballRight > pipeLeft && ballLeft < pipeRight) {
-                // top pillar collision
                 if (ballTop < pipeTopHeight) return true;
-                // bottom pillar collision
                 if (ballBottom > pipeTopHeight + PIPE_GAP) return true;
             }
             return false;
         }
 
-        // game over handling
         function endGame() {
             if (!gameActive) return;
             gameActive = false;
-            // show game over with alert but less intrusive? but we want smooth experience.
-            // but we will display overlay-style message using a dynamic banner? For simplicity & modern: show alert and reset.
-            // But alert blocks, however we add a friendly restart within alert.
-            // Alternatively show small modal but I'll use sweet alert style using confirm? Use alert then restart.
-            // Better: display within canvas? But ensure user restart. We'll call reset with start overlay?
-            // Actually we want start screen again but keep game restart. Let's fade in startOverlay again and reset state.
             if (animationId) cancelAnimationFrame(animationId);
-            // show start screen again with last score alert?
-            alert(`⚡ GAME OVER ⚡\nYour score: ${score}\nTap OK to play again!`);
+            // Save high score (this will also reveal UI if first time)
+            saveHighScoreIfNeeded(score);
+            alert(`⚡ GAME OVER ⚡\nYour score: ${score}\nBest: ${highScore}\nTap OK to play again!`);
             showStartScreenAndReset();
         }
 
         function showStartScreenAndReset() {
             gameActive = false;
             startOverlay.classList.remove("hide");
-            // reset game variables (for future start)
             score = 0;
             updateScoreUI();
             ballY = CANVAS_H / 2;
             velocity = 0;
+            ballAngle = 0;
+            spinSpeed = 0.05;
             pipeX = CANVAS_W;
             pipeTopHeight = Math.random() * (CANVAS_H - PIPE_GAP - 60) + 40;
             if (pipeTopHeight < 25) pipeTopHeight = 35;
             if (pipeTopHeight + PIPE_GAP > CANVAS_H - 25) pipeTopHeight = CANVAS_H - PIPE_GAP - 35;
-            // draw static game preview (non interactive) to show background?
             drawStaticPreview();
             if (animationId) cancelAnimationFrame(animationId);
             animationId = null;
@@ -456,14 +491,12 @@
         }
 
         function drawSkyAndBackground() {
-            // New sky gradient (deep sunset to vibrant sky blue)
             const gradSky = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
             gradSky.addColorStop(0, '#6EC8E0');
             gradSky.addColorStop(0.5, '#43B3D1');
             gradSky.addColorStop(1, '#FFCF9A');
             ctx.fillStyle = gradSky;
             ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-            // draw fluffy clouds
             ctx.fillStyle = 'rgba(255,255,245,0.85)';
             ctx.beginPath();
             ctx.ellipse(70, 80, 40, 30, 0, 0, Math.PI*2);
@@ -481,19 +514,15 @@
         }
 
         function drawPillars() {
-            // brick / stone pillars with texture
             ctx.shadowBlur = 0;
-            // Upper pillar
             ctx.fillStyle = "#E3CFA5";
             ctx.fillRect(pipeX, 0, PIPE_WIDTH, pipeTopHeight);
             ctx.fillStyle = "#C2A575";
             ctx.fillRect(pipeX, pipeTopHeight-20, PIPE_WIDTH, 20);
-            // lower pillar
             ctx.fillStyle = "#E3CFA5";
             ctx.fillRect(pipeX, pipeTopHeight + PIPE_GAP, PIPE_WIDTH, CANVAS_H);
             ctx.fillStyle = "#C2A575";
             ctx.fillRect(pipeX, pipeTopHeight + PIPE_GAP, PIPE_WIDTH, 18);
-            // detailing lines
             ctx.fillStyle = "#A58254";
             for(let i=0;i<3;i++) {
                 ctx.fillRect(pipeX+5, pipeTopHeight-15 + i*6, PIPE_WIDTH-10, 3);
@@ -502,20 +531,21 @@
         }
 
         function drawBall() {
-            // draw custom image as ball!
+            ctx.save();
+            ctx.translate(50, ballY);
+            ctx.rotate(ballAngle);
             if (ballImage.complete && ballImage.naturalWidth > 0) {
-                ctx.drawImage(ballImage, 50 - BALL_RADIUS, ballY - BALL_RADIUS, BALL_RADIUS*2, BALL_RADIUS*2);
+                ctx.drawImage(ballImage, -BALL_RADIUS, -BALL_RADIUS, BALL_RADIUS*2, BALL_RADIUS*2);
             } else {
-                // fallback in case image not loaded yet
                 ctx.beginPath();
-                ctx.arc(50, ballY, BALL_RADIUS, 0, Math.PI*2);
+                ctx.arc(0, 0, BALL_RADIUS, 0, Math.PI*2);
                 ctx.fillStyle = "#FFB347";
                 ctx.fill();
                 ctx.fillStyle = "black";
                 ctx.font = "bold 20px sans-serif";
-                ctx.fillText("⚽", 42, ballY+7);
+                ctx.fillText("⚽", -10, 7);
             }
-            // add motion blur effect or cute trail?
+            ctx.restore();
             ctx.shadowBlur = 8;
             ctx.shadowColor = "rgba(0,0,0,0.3)";
             ctx.beginPath();
@@ -525,36 +555,26 @@
             ctx.shadowBlur = 0;
         }
 
-        // update physics and obstacles
         function updateGame() {
             if (!gameActive) return;
-            
-            // physics
             velocity += GRAVITY;
             ballY += velocity;
-            
-            // pipe movement
-            pipeX -= 3.6;  // smooth speed
-            
+            ballAngle += spinSpeed;
+            if (spinSpeed > 0.05) spinSpeed -= 0.01;
+            pipeX -= 2.2;
             if (pipeX + PIPE_WIDTH < 0) {
                 pipeX = CANVAS_W;
-                // randomize gap position
                 let newTop = Math.random() * (CANVAS_H - PIPE_GAP - 50) + 35;
                 if (newTop < 20) newTop = 25;
                 if (newTop + PIPE_GAP > CANVAS_H - 20) newTop = CANVAS_H - PIPE_GAP - 30;
                 pipeTopHeight = newTop;
-                // increase score only when pipe passed safely (after passing left edge)
                 score++;
                 updateScoreUI();
             }
-            
-            // collision detection
             if (checkCollision()) {
                 endGame();
                 return;
             }
-            
-            // extra ceiling/floor bound check if ball out but collision already covers, just double ensure
             if (ballY + BALL_RADIUS > CANVAS_H || ballY - BALL_RADIUS < 0) {
                 endGame();
                 return;
@@ -566,8 +586,6 @@
             drawSkyAndBackground();
             drawPillars();
             drawBall();
-            
-            // small grass effect
             ctx.fillStyle = "#4C9F3C";
             ctx.fillRect(0, CANVAS_H-12, CANVAS_W, 12);
             ctx.fillStyle = "#76C45A";
@@ -576,21 +594,18 @@
             }
         }
 
-        // tap / jump control
         function handleJump(e) {
             e.preventDefault();
             if (!gameActive) return;
             velocity = JUMP_FORCE;
-            // optional tiny boost sound effect? not needed but feels nice
+            spinSpeed = 0.45;
         }
 
-        // animation loop
         function gameLoop() {
             if (gameActive) {
                 updateGame();
                 drawGame();
             } else {
-                // if game inactive but overlay not visible? keep drawing static background
                 if (startOverlay.classList.contains('hide')) {
                     drawGame();
                 } else {
@@ -600,25 +615,22 @@
             animationId = requestAnimationFrame(gameLoop);
         }
 
-        // ----- START GAME CALLBACK (remove overlay and engage) -----
         function startGame() {
             startOverlay.classList.add("hide");
-            // reset everything to fresh state
             gameActive = true;
             score = 0;
             updateScoreUI();
             ballY = CANVAS_H / 2;
             velocity = 0;
+            ballAngle = 0;
+            spinSpeed = 0.05;
             pipeX = CANVAS_W;
             pipeTopHeight = Math.random() * (CANVAS_H - PIPE_GAP - 60) + 40;
             if (pipeTopHeight < 30) pipeTopHeight = 35;
             if (pipeTopHeight + PIPE_GAP > CANVAS_H - 30) pipeTopHeight = CANVAS_H - PIPE_GAP - 40;
-            // ensure no pending game over flags
         }
         
-        // add event listeners
         function bindEvents() {
-            // touch and mouse for canvas jumping
             canvas.addEventListener("touchstart", (e) => {
                 e.preventDefault();
                 handleJump(e);
@@ -627,16 +639,14 @@
                 e.preventDefault();
                 handleJump(e);
             });
-            // also start button
             startBtn.addEventListener("click", (e) => {
                 e.stopPropagation();
                 startGame();
             });
-            // also clicking on overlay background to start? we don't want accidental; only button.
         }
         
-        // initial draw preview & start showing startScreen with title
         function init() {
+            loadHighScore();  // Load saved high score from localStorage, UI hidden if first time
             bindEvents();
             ballImage.onload = () => {
                 if (!gameActive && startOverlay && !startOverlay.classList.contains('hide')) {
@@ -644,10 +654,9 @@
                 }
             };
             drawStaticPreview();
-            gameLoop();   // start animation regardless
+            gameLoop();   
         }
         
-        // Override start via start button: also cancel any ongoing endGame flags
         startBtn.onclick = (e) => {
             e.preventDefault();
             startGame();
